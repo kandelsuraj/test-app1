@@ -1,0 +1,174 @@
+{%- comment -%}
+  Renders the customer input fields configured in the app admin, prices them with
+  the merchant's formula, and adds the result to the cart.
+
+  The storefront cannot set a line price, so the line is added as
+  `quantity x variant price`. Price the variant at the smallest unit (0.01) and
+  the line total lands exactly on the calculated price.
+{%- endcomment -%}
+
+{%- assign config = product.metafields["$app"].price_calculator.value -%}
+
+{%- if config != blank and config.enabled != false and config.fields.size > 0 -%}
+  {%- assign variant = product.selected_or_first_available_variant -%}
+
+  <div
+    class="price-calc"
+    data-price-calculator
+    data-config="{{ config | json | escape }}"
+    data-unit-cents="{{ variant.price }}"
+    data-currency="{{ cart.currency.iso_code }}"
+    {{ block.shopify_attributes }}
+  >
+    <form
+      method="post"
+      action="{{ routes.cart_add_url }}"
+      accept-charset="UTF-8"
+      class="price-calc__form"
+      data-price-calc-form
+    >
+      <input type="hidden" name="form_type" value="product">
+      <input type="hidden" name="utf8" value="✓">
+      <input type="hidden" name="id" value="{{ variant.id }}">
+      <input type="hidden" name="quantity" value="1" data-price-calc-quantity>
+
+      <div class="price-calc__fields">
+        {%- for field in config.fields -%}
+          {%- assign input_id = block.id | append: '-' | append: field.key -%}
+
+          <div class="price-calc__field">
+            <label class="price-calc__label" for="{{ input_id }}">
+              {{- field.label | escape -}}
+              {%- if field.unit != blank %} ({{ field.unit | escape }}){% endif -%}
+            </label>
+
+            {%- if field.type == 'select' -%}
+              <select
+                class="price-calc__control"
+                id="{{ input_id }}"
+                data-calc-key="{{ field.key | escape }}"
+                data-calc-type="select"
+              >
+                {%- for option in field.options -%}
+                  <option
+                    value="{{ option.value }}"
+                    {% if field.defaultValue != blank and field.defaultValue == option.value %}selected{% endif %}
+                  >
+                    {{- option.label | escape -}}
+                  </option>
+                {%- endfor -%}
+              </select>
+
+            {%- elsif field.type == 'checkbox' -%}
+              <input
+                class="price-calc__control price-calc__control--checkbox"
+                id="{{ input_id }}"
+                type="checkbox"
+                data-calc-key="{{ field.key | escape }}"
+                data-calc-type="checkbox"
+                {% if field.defaultValue == 1 %}checked{% endif %}
+              >
+
+            {%- else -%}
+              <input
+                class="price-calc__control"
+                id="{{ input_id }}"
+                type="number"
+                inputmode="decimal"
+                data-calc-key="{{ field.key | escape }}"
+                data-calc-type="number"
+                {% if field.min != blank %}min="{{ field.min }}"{% endif %}
+                {% if field.max != blank %}max="{{ field.max }}"{% endif %}
+                {% if field.step != blank %}step="{{ field.step }}"{% endif %}
+                {% if field.defaultValue != blank %}value="{{ field.defaultValue }}"{% elsif field.min != blank %}value="{{ field.min }}"{% endif %}
+              >
+            {%- endif -%}
+
+            {%- comment -%}
+              The visible controls are unnamed; these hidden inputs carry the
+              readable values through to the cart as line item properties.
+            {%- endcomment -%}
+            <input
+              type="hidden"
+              name="properties[{{ field.label | escape }}]"
+              data-calc-prop="{{ field.key | escape }}"
+              value=""
+            >
+          </div>
+        {%- endfor -%}
+      </div>
+
+      {%- if config.allowPieces != false -%}
+        {%- assign pieces_id = block.id | append: '-pieces' -%}
+        <div class="price-calc__field price-calc__field--pieces">
+          <label class="price-calc__label" for="{{ pieces_id }}">
+            {{- config.piecesLabel | default: 'Pieces' | escape -}}
+          </label>
+          <input
+            class="price-calc__control"
+            id="{{ pieces_id }}"
+            type="number"
+            inputmode="numeric"
+            min="1"
+            step="1"
+            max="{{ config.maxPieces | default: 100 }}"
+            value="1"
+            data-price-calc-pieces
+          >
+          <input
+            type="hidden"
+            name="properties[{{ config.piecesLabel | default: 'Pieces' | escape }}]"
+            value="1"
+            data-price-calc-pieces-prop
+          >
+        </div>
+      {%- endif -%}
+
+      <input type="hidden" name="properties[_calculator]" value="" data-price-calc-raw>
+
+      <div class="price-calc__summary">
+        <span class="price-calc__price-label">{{ config.priceLabel | default: 'Your price' | escape }}</span>
+        <span class="price-calc__price" data-price-calc-output>—</span>
+      </div>
+
+      {%- if config.note != blank -%}
+        <p class="price-calc__note">{{ config.note | escape }}</p>
+      {%- endif -%}
+
+      <p class="price-calc__error" data-price-calc-error hidden></p>
+
+      <button
+        type="submit"
+        class="price-calc__submit button btn"
+        data-price-calc-submit
+        disabled
+      >
+        {{ config.addToCartLabel | default: 'Add to cart' | escape }}
+      </button>
+
+      <noscript>
+        <p class="price-calc__error">
+          JavaScript is required to price this product.
+        </p>
+      </noscript>
+    </form>
+  </div>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Price calculator",
+  "target": "section",
+  "stylesheet": "price-calculator.css",
+  "javascript": "price-calculator.js",
+  "enabled_on": {
+    "templates": ["product"]
+  },
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Fields and the pricing formula are configured per product in the app. Hide the theme's own buy button on products that use this block."
+    }
+  ]
+}
+{% endschema %}

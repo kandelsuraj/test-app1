@@ -1,0 +1,74 @@
+.price-calc {
+  margin: 1.5rem 0;
+}
+
+.price-calc__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.price-calc__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.price-calc__label {
+  font-size: 0.9em;
+  font-weight: 500;
+}
+
+.price-calc__control {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 0.4rem;
+  box-sizing: border-box;
+}
+
+.price-calc__control--checkbox {
+  width: auto;
+  align-self: flex-start;
+  padding: 0;
+}
+
+.price-calc__summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid rgba(128, 128, 128, 0.35);
+}
+
+.price-calc__price {
+  font-size: 1.35em;
+  font-weight: 600;
+}
+
+.price-calc__note {
+  margin: 0 0 0.75rem;
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+
+.price-calc__error {
+  margin: 0 0 0.75rem;
+  font-size: 0.9em;
+  color: #b00020;
+}
+
+.price-calc__submit {
+  width: 100%;
+}
+
+.price-calc__submit[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
