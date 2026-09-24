@@ -347,8 +347,10 @@
           return;
         }
         if (control.getAttribute('data-calc-type') === 'number') {
-          if (field.min !== null && field.min !== undefined && value < field.min) {
-            problem = problem || (field.label || key) + ' must be at least ' + field.min + (field.unit ? ' ' + field.unit : '') + '.';
+          // Same rule as checkout: no minimum set still means no negatives.
+          var lowest = field.min !== null && field.min !== undefined ? field.min : 0;
+          if (value < lowest) {
+            problem = problem || (field.label || key) + ' must be at least ' + lowest + (field.unit ? ' ' + field.unit : '') + '.';
           }
           if (field.max !== null && field.max !== undefined && value > field.max) {
             problem = problem || (field.label || key) + ' can be at most ' + field.max + (field.unit ? ' ' + field.unit : '') + '.';
@@ -382,6 +384,8 @@
 
       // The formula prices one piece; buying several multiplies it.
       var perPieceCents = Math.round(Math.max(price, Number(config.minPrice) || 0) * 100);
+      // Checkout refuses anything under a cent, so say so here first.
+      if (perPieceCents < 1) return fail('This item can\'t be priced with those values.');
       var totalCents = perPieceCents * pieces;
 
       var quantity = Math.max(1, Math.round(totalCents / unitCents));

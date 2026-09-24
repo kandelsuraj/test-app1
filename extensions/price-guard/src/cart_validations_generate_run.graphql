@@ -1,0 +1,31 @@
+query CartValidationsGenerateRunInput {
+  buyerJourney {
+    step
+  }
+  presentmentCurrencyRate
+  cart {
+    lines {
+      quantity
+      calculator: attribute(key: "_calculator") {
+        value
+      }
+      cost {
+        amountPerQuantity {
+          amount
+        }
+      }
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          product {
+            title
+            # No namespace: the app-reserved one, i.e. $app:price_calculator.
+            calculator: metafield(key: "price_calculator") {
+              jsonValue
+            }
+          }
+        }
+      }
+    }
+  }
+}

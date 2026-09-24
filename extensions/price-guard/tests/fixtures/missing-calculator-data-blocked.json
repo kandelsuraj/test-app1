@@ -1,0 +1,69 @@
+{
+  "payload": {
+    "export": "cart-validations-generate-run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "buyerJourney": {
+        "step": "CHECKOUT_COMPLETION"
+      },
+      "presentmentCurrencyRate": "1",
+      "cart": {
+        "lines": [
+          {
+            "quantity": 1,
+            "calculator": null,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "0.01"
+              }
+            },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "product": {
+                "title": "Panel",
+                "calculator": {
+                  "jsonValue": {
+                    "formula": "width * height / 10000 * 45",
+                    "fields": [
+                      {
+                        "key": "width",
+                        "label": "Width",
+                        "type": "number",
+                        "unit": "cm",
+                        "min": 10,
+                        "max": 300
+                      },
+                      {
+                        "key": "height",
+                        "label": "Height",
+                        "type": "number",
+                        "unit": "cm",
+                        "min": 10,
+                        "max": 300
+                      }
+                    ],
+                    "maxPieces": 100
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "validationAdd": {
+            "errors": [
+              {
+                "message": "Panel has to be ordered through its price calculator. Please remove it and add it again from the product page.",
+                "target": "$.cart"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

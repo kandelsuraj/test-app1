@@ -1,0 +1,4 @@
+{
+  "name": "Price calculator guard",
+  "description": "Blocks checkout of price-calculator products charged below their calculated price."
+}

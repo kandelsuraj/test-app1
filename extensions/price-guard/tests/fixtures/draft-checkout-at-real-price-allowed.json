@@ -1,0 +1,82 @@
+{
+  "payload": {
+    "export": "cart-validations-generate-run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "buyerJourney": {
+        "step": "CHECKOUT_COMPLETION"
+      },
+      "presentmentCurrencyRate": "1",
+      "cart": {
+        "lines": [
+          {
+            "quantity": 2,
+            "calculator": {
+              "value": "{\"values\":{\"width\":100,\"height\":100},\"pieces\":2}"
+            },
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "45"
+              }
+            },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "product": {
+                "title": "Panel",
+                "calculator": {
+                  "jsonValue": {
+                    "formula": "width * height / 10000 * 45",
+                    "fields": [
+                      {
+                        "key": "width",
+                        "label": "Width",
+                        "type": "number",
+                        "unit": "cm",
+                        "min": 10,
+                        "max": 300
+                      },
+                      {
+                        "key": "height",
+                        "label": "Height",
+                        "type": "number",
+                        "unit": "cm",
+                        "min": 10,
+                        "max": 300
+                      }
+                    ],
+                    "maxPieces": 100
+                  }
+                }
+              }
+            }
+          },
+          {
+            "quantity": 1,
+            "calculator": null,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "12"
+              }
+            },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "product": {
+                "title": "Hooks",
+                "calculator": null
+              }
+            }
+          }
+        ]
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "validationAdd": {
+            "errors": []
+          }
+        }
+      ]
+    }
+  }
+}

@@ -10,7 +10,11 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 
 import { authenticate } from "../shopify.server";
-import { normalizeConfig, priceCalculatedLine } from "../calculator";
+import {
+  lineAttributes,
+  normalizeConfig,
+  priceCalculatedLine,
+} from "../calculator";
 import type { CalculatorConfig } from "../calculator";
 import {
   DRAFT_TAG,
@@ -24,6 +28,7 @@ const CALC_PROPERTY = "_calculator";
 
 type IncomingItem = {
   variantId?: number | string;
+  /** Sent by the storefront but ignored: the variant's product is looked up. */
   productId?: number | string;
   quantity?: number;
   properties?: Record<string, string> | null;
@@ -160,41 +165,44 @@ async function createCheckout(request: Request, timer: Stopwatch) {
     return json({ error: "No calculated items in the cart." }, 422);
   }
 
-  const productIds = Array.from(
-    new Set(
-      items
-        .filter(isCalculated)
-        .map((item) => (item.productId ? gid("Product", item.productId) : null))
-        .filter((id): id is string => Boolean(id)),
-    ),
+  // Look every variant up in Shopify rather than trusting the browser about
+  // which product it belongs to: otherwise a cart could name the calculator
+  // product but carry some other product's variant, and buy that product at
+  // the calculated price.
+  const variantIds = Array.from(
+    new Set(items.map((item) => gid("ProductVariant", item.variantId!))),
   );
 
-  const configResponse = await admin.graphql(
+  const variantResponse = await admin.graphql(
     `#graphql
-      query CalculatorCheckoutConfigs($ids: [ID!]!) {
+      query CalculatorCheckoutVariants($ids: [ID!]!) {
         shop {
           currencyCode
         }
         nodes(ids: $ids) {
-          ... on Product {
+          ... on ProductVariant {
             id
-            calculator: metafield(namespace: "${NAMESPACE}", key: "${KEY}") {
-              jsonValue
+            product {
+              id
+              calculator: metafield(namespace: "${NAMESPACE}", key: "${KEY}") {
+                jsonValue
+              }
             }
           }
         }
       }`,
-    { variables: { ids: productIds } },
+    { variables: { ids: variantIds } },
   );
-  const configJson = await configResponse.json();
-  timer.lap("load calculator settings");
-  const currencyCode: string = configJson.data?.shop?.currencyCode ?? "USD";
+  const variantJson = await variantResponse.json();
+  timer.lap("load variants and calculator settings");
+  const currencyCode: string = variantJson.data?.shop?.currencyCode ?? "USD";
 
-  const configs = new Map<string, CalculatorConfig>();
-  for (const node of configJson.data?.nodes ?? []) {
-    if (node?.id && node.calculator?.jsonValue) {
-      configs.set(node.id, normalizeConfig(node.calculator.jsonValue));
-    }
+  /** Variant GID -> its product's calculator, or null for ordinary products. */
+  const variants = new Map<string, CalculatorConfig | null>();
+  for (const node of variantJson.data?.nodes ?? []) {
+    if (!node?.id) continue;
+    const raw = node.product?.calculator?.jsonValue;
+    variants.set(node.id, raw ? normalizeConfig(raw) : null);
   }
 
   const lineItems: DraftLineItem[] = [];
@@ -203,7 +211,19 @@ async function createCheckout(request: Request, timer: Stopwatch) {
     const variantId = gid("ProductVariant", item.variantId!);
     const attributes = visibleAttributes(item.properties);
 
-    if (!isCalculated(item)) {
+    if (!variants.has(variantId)) {
+      return json({ error: "One of the items is no longer available." }, 422);
+    }
+    const config = variants.get(variantId) ?? null;
+
+    if (!config) {
+      if (isCalculated(item)) {
+        return json(
+          { error: "One of the items is no longer set up for custom pricing." },
+          422,
+        );
+      }
+      // An ordinary product: Shopify charges its own variant price.
       lineItems.push({
         variantId,
         quantity: Math.max(1, Math.floor(item.quantity!)),
@@ -212,11 +232,14 @@ async function createCheckout(request: Request, timer: Stopwatch) {
       continue;
     }
 
-    const productId = item.productId ? gid("Product", item.productId) : "";
-    const config = configs.get(productId);
-    if (!config) {
+    // A calculator product is priced at a token amount per unit, so without
+    // its calculator values it would sell for quantity x that token amount.
+    if (!isCalculated(item)) {
       return json(
-        { error: "One of the items is no longer set up for custom pricing." },
+        {
+          error:
+            "One of the items needs its size and options chosen on the product page.",
+        },
         422,
       );
     }
@@ -240,7 +263,19 @@ async function createCheckout(request: Request, timer: Stopwatch) {
         amount: priced.price.toFixed(2),
         currencyCode,
       },
-      customAttributes: attributes,
+      customAttributes: [
+        // Written from the checked values, not the browser's text.
+        ...lineAttributes(config, priced.values, priced.pieces),
+        // Kept (hidden, as it starts with "_") so the price-guard checkout
+        // Function can re-price this line and let it through.
+        {
+          key: CALC_PROPERTY,
+          value: JSON.stringify({
+            values: priced.values,
+            pieces: priced.pieces,
+          }),
+        },
+      ],
     });
   }
 

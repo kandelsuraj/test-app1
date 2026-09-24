@@ -282,23 +282,38 @@ export function totalCents(
 export function priceCalculatedLine(
   config: CalculatorConfig,
   payload: { values?: Record<string, number>; pieces?: number },
-): { price: number; pieces: number } | { error: string } {
-  const values = payload.values ?? {};
+):
+  | { price: number; pieces: number; values: Record<string, number> }
+  | { error: string } {
+  const submitted = payload.values ?? {};
+  // Only the configured fields reach the formula, each checked against what
+  // the storefront could actually have offered.
+  const values: Record<string, number> = {};
 
   for (const field of config.fields) {
-    const value = values[field.key];
+    const name = field.label || field.key;
+    const value = submitted[field.key];
 
     if (typeof value !== "number" || !Number.isFinite(value)) {
-      return { error: `Missing a value for ${field.label || field.key}.` };
+      return { error: `Missing a value for ${name}.` };
     }
     if (field.type === "number") {
-      if (field.min !== null && value < field.min) {
-        return { error: `${field.label || field.key} is below the minimum.` };
+      // No minimum set still rules out negative sizes.
+      if (value < (field.min ?? 0)) {
+        return { error: `${name} is below the minimum.` };
       }
       if (field.max !== null && value > field.max) {
-        return { error: `${field.label || field.key} is above the maximum.` };
+        return { error: `${name} is above the maximum.` };
       }
+    } else if (field.type === "checkbox") {
+      if (value !== 0 && value !== 1) {
+        return { error: `${name} has an invalid value.` };
+      }
+    } else if (!field.options.some((option) => option.value === value)) {
+      // Dropdowns and radio buttons: only an offered option's value.
+      return { error: `${name} has an option that isn't offered.` };
     }
+    values[field.key] = value;
   }
 
   let perPiece: number;
@@ -314,8 +329,14 @@ export function priceCalculatedLine(
   }
 
   perPiece = Math.max(perPiece, config.minPrice);
-  if (!Number.isFinite(perPiece) || perPiece < 0) {
+  if (!Number.isFinite(perPiece)) {
     return { error: "We could not work out a price for this item." };
+  }
+  // Charged in whole cents, so anything that rounds to nothing is refused
+  // rather than given away.
+  perPiece = Math.round(perPiece * 100) / 100;
+  if (perPiece < 0.01) {
+    return { error: "This item can't be priced with those values." };
   }
 
   const requested = config.allowPieces
@@ -323,5 +344,37 @@ export function priceCalculatedLine(
     : 1;
   const pieces = Math.min(Math.max(requested, 1), config.maxPieces);
 
-  return { price: perPiece, pieces };
+  return { price: perPiece, pieces, values };
+}
+
+/**
+ * The readable line item details for a priced line ("Width: 100 cm",
+ * "Pieces: 2"), built from the checked values rather than copied from the
+ * browser, so what the order says always matches what was charged.
+ */
+export function lineAttributes(
+  config: CalculatorConfig,
+  values: Record<string, number>,
+  pieces: number,
+): { key: string; value: string }[] {
+  const attributes = config.fields.map((field) => {
+    const value = values[field.key];
+    let shown: string;
+
+    if (field.type === "checkbox") {
+      shown = value ? "Yes" : "No";
+    } else if (hasOptions(field.type)) {
+      shown =
+        field.options.find((option) => option.value === value)?.label ??
+        String(value);
+    } else {
+      shown = field.unit ? `${value} ${field.unit}` : String(value);
+    }
+    return { key: field.label || field.key, value: shown };
+  });
+
+  if (config.allowPieces) {
+    attributes.push({ key: config.piecesLabel, value: String(pieces) });
+  }
+  return attributes;
 }
