@@ -32,3 +32,20 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
+
+/// A price calculator the merchant configured, and the products that use it.
+/// The config is also copied into each product's $app:price_calculator
+/// metafield, which is what the storefront block and checkout read.
+model Calculator {
+  id         String   @id @default(cuid())
+  shop       String
+  name       String
+  /// CalculatorConfig as JSON.
+  config     String
+  /// Product GIDs as a JSON array.
+  productIds String   @default("[]")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([shop])
+}

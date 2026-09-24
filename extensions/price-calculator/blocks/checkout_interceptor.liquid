@@ -1,0 +1,102 @@
+{%- comment -%}
+  App embed. Loads on every storefront page and takes over the checkout button
+  whenever the cart holds calculated items, so they reach checkout as a draft
+  order priced by the app rather than as a raw quantity multiple.
+
+  If anything here fails, the click falls through to Shopify's normal checkout.
+  That path is still charged correctly, because the line was added as
+  quantity x unit price — it just looks less tidy.
+
+  It also shows calculated lines in pieces in the cart (cart-quantity.js). That
+  script can only relabel the theme's markup after it has rendered, so this
+  renders in the head and puts a skeleton over the raw quantities (4500 and the
+  like) of calculated lines until the pieces are in place.
+{%- endcomment -%}
+
+{%- assign calculated_lines = '' -%}
+{%- for item in cart.items -%}
+  {%- if item.properties._calculator != blank -%}
+    {%- capture selector -%}input[name="updates[]"][data-index="{{ forloop.index }}"]:not([data-calc-cart]){%- endcapture -%}
+    {%- assign calculated_lines = calculated_lines | append: selector | append: ',' -%}
+  {%- endif -%}
+{%- endfor -%}
+
+<style>
+  {%- if calculated_lines != blank %}
+    {{ calculated_lines }}
+  {%- endif %}
+  input.price-calc-pending {
+    color: transparent !important;
+    caret-color: transparent;
+    background: linear-gradient(90deg, rgba(127, 127, 127, 0.12) 25%, rgba(127, 127, 127, 0.28) 50%, rgba(127, 127, 127, 0.12) 75%) !important;
+    background-size: 200% 100% !important;
+    border-radius: 4px;
+    animation: price-calc-shimmer 1.2s ease-in-out infinite;
+  }
+  {%- if calculated_lines != blank %}
+    {%- comment -%} On its own: browsers without :has() drop the whole rule. {%- endcomment %}
+    {{ calculated_lines | replace: 'input[name=', 'quantity-input:has(input[name=' | replace: ':not([data-calc-cart])', ':not([data-calc-cart])) button' }}
+    .price-calc-never {
+      pointer-events: none;
+      opacity: 0.35;
+    }
+  {%- endif %}
+  .price-calc-pending button {
+    pointer-events: none;
+    opacity: 0.35;
+  }
+  {%- if calculated_lines != blank %}
+    .cart-count-bubble:not([data-calc-cart]),
+  {%- endif %}
+  .cart-count-bubble.price-calc-pending {
+    color: transparent !important;
+    animation: price-calc-pulse 0.8s ease-in-out infinite alternate;
+  }
+  @keyframes price-calc-shimmer {
+    from { background-position: 100% 0; }
+    to { background-position: -100% 0; }
+  }
+  @keyframes price-calc-pulse {
+    from { opacity: 1; }
+    to { opacity: 0.45; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    input.price-calc-pending,
+    .cart-count-bubble {
+      animation: none !important;
+    }
+  }
+</style>
+
+{%- comment -%} `<` escaped so a property value can never close the script tag. {%- endcomment -%}
+<script type="application/json" id="price-calc-cart">{{ cart | json | replace: '<', '<' }}</script>
+
+<script
+  src="{{ 'checkout-interceptor.js' | asset_url }}"
+  data-price-calc-checkout
+  data-endpoint="/apps/calculator/checkout"
+  data-status-endpoint="/apps/calculator/checkout-status"
+  data-cart-url="{{ routes.cart_url }}"
+  data-busy-label="{{ block.settings.busy_label | escape }}"
+  defer
+></script>
+<script src="{{ 'cart-quantity.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "Price calculator checkout",
+  "target": "head",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Turns calculated cart items into a draft order at checkout, so the order shows real quantities and prices. Leave this enabled wherever the price calculator block is used."
+    },
+    {
+      "type": "text",
+      "id": "busy_label",
+      "label": "Checkout button text while preparing",
+      "default": "Preparing your order…"
+    }
+  ]
+}
+{% endschema %}

@@ -3,9 +3,19 @@
  * $app:price_calculator product metafield, plus validation shared by the admin
  * action and the admin live preview.
  */
-import { FormulaError, collectVariables, parseFormula } from "./formula";
+import {
+  FormulaError,
+  collectVariables,
+  parseFormula,
+  runFormula,
+} from "./formula";
 
-export type FieldType = "number" | "select" | "checkbox";
+export type FieldType = "number" | "select" | "radio" | "checkbox";
+
+/** Types the customer picks from a list of options. */
+export function hasOptions(type: FieldType) {
+  return type === "select" || type === "radio";
+}
 
 export type CalculatorField = {
   /** Identifier used inside the formula. */
@@ -18,7 +28,7 @@ export type CalculatorField = {
   max: number | null;
   step: number | null;
   defaultValue: number | null;
-  /** Only for type "select"; the value is what the formula sees. */
+  /** Only for "select" and "radio"; the value is what the formula sees. */
   options: { label: string; value: number }[];
 };
 
@@ -80,7 +90,7 @@ export const EMPTY_CONFIG: CalculatorConfig = {
   addToCartLabel: "Add to cart",
   note: "",
   allowPieces: true,
-  piecesLabel: "Pieces",
+  piecesLabel: "Quantity",
   maxPieces: 100,
 };
 
@@ -119,7 +129,9 @@ export function normalizeConfig(input: unknown): CalculatorConfig {
     ),
     fields: fields.map((field) => {
       const type: FieldType =
-        field?.type === "select" || field?.type === "checkbox"
+        field?.type === "select" ||
+        field?.type === "radio" ||
+        field?.type === "checkbox"
           ? field.type
           : "number";
 
@@ -180,16 +192,14 @@ export function validateConfig(config: CalculatorConfig): string[] {
     }
     labels.add(field.label.toLowerCase());
 
-    if (
-      field.min !== null &&
-      field.max !== null &&
-      field.min > field.max
-    ) {
+    if (field.min !== null && field.max !== null && field.min > field.max) {
       errors.push(`${position}: the minimum is larger than the maximum.`);
     }
 
-    if (field.type === "select" && field.options.length === 0) {
-      errors.push(`${position}: a dropdown needs at least one option.`);
+    if (hasOptions(field.type) && field.options.length === 0) {
+      errors.push(
+        `${position}: ${field.type === "radio" ? "radio buttons need" : "a dropdown needs"} at least one option.`,
+      );
     }
   });
 
@@ -229,7 +239,7 @@ export function validateConfig(config: CalculatorConfig): string[] {
 /** The value a field contributes to the formula before the customer touches it. */
 export function defaultValueFor(field: CalculatorField): number {
   if (field.type === "checkbox") return field.defaultValue ? 1 : 0;
-  if (field.type === "select") {
+  if (hasOptions(field.type)) {
     return field.defaultValue ?? field.options[0]?.value ?? 0;
   }
   return field.defaultValue ?? field.min ?? 0;
@@ -260,4 +270,58 @@ export function totalCents(
 ) {
   const perPiece = Math.max(unitPrice, minPrice);
   return Math.round(perPiece * 100) * Math.max(1, Math.round(pieces));
+}
+
+/**
+ * Authoritative pricing for one cart line, used by the app proxy at checkout.
+ *
+ * Deliberately ignores any price the storefront claims: it reads only the
+ * customer's entered values and re-derives everything from the merchant's
+ * config, so a tampered payload changes what is ordered, never what is charged.
+ */
+export function priceCalculatedLine(
+  config: CalculatorConfig,
+  payload: { values?: Record<string, number>; pieces?: number },
+): { price: number; pieces: number } | { error: string } {
+  const values = payload.values ?? {};
+
+  for (const field of config.fields) {
+    const value = values[field.key];
+
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return { error: `Missing a value for ${field.label || field.key}.` };
+    }
+    if (field.type === "number") {
+      if (field.min !== null && value < field.min) {
+        return { error: `${field.label || field.key} is below the minimum.` };
+      }
+      if (field.max !== null && value > field.max) {
+        return { error: `${field.label || field.key} is above the maximum.` };
+      }
+    }
+  }
+
+  let perPiece: number;
+  try {
+    perPiece = runFormula(config.formula, values);
+  } catch (error) {
+    return {
+      error:
+        error instanceof FormulaError
+          ? "This product is not priced correctly yet."
+          : "We could not work out a price for this item.",
+    };
+  }
+
+  perPiece = Math.max(perPiece, config.minPrice);
+  if (!Number.isFinite(perPiece) || perPiece < 0) {
+    return { error: "We could not work out a price for this item." };
+  }
+
+  const requested = config.allowPieces
+    ? Math.floor(Number(payload.pieces) || 1)
+    : 1;
+  const pieces = Math.min(Math.max(requested, 1), config.maxPieces);
+
+  return { price: perPiece, pieces };
 }

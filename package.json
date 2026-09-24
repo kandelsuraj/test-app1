@@ -2,11 +2,11 @@
   "name": "testapp1",
   "private": true,
   "scripts": {
-    "build": "react-router build",
-    "dev": "shopify app dev",
+    "build": "npm run build:extensions && react-router build",
+    "dev": "npm run build:extensions && shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
-    "deploy": "shopify app deploy",
+    "deploy": "npm run build:extensions && shopify app deploy",
     "config:use": "shopify app config use",
     "env": "shopify app env",
     "start": "react-router-serve ./build/server/index.js",
@@ -17,7 +17,9 @@
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
-    "typecheck": "react-router typegen && tsc --noEmit"
+    "typecheck": "react-router typegen && tsc --noEmit",
+    "build:extensions": "node scripts/build-extensions.mjs",
+    "watch:extensions": "node scripts/build-extensions.mjs --watch"
   },
   "type": "module",
   "engines": {
@@ -48,6 +50,7 @@
     "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
+    "esbuild": "^0.25.12",
     "eslint": "^8.57.1",
     "eslint-import-resolver-typescript": "^3.10.1",
     "eslint-plugin-import": "^2.32.0",

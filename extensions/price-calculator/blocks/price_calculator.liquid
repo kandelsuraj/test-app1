@@ -12,6 +12,17 @@
 {%- if config != blank and config.enabled != false and config.fields.size > 0 -%}
   {%- assign variant = product.selected_or_first_available_variant -%}
 
+  {%- comment -%}
+    Dynamic checkout buttons jump straight past the cart, and the theme's own
+    Add to cart adds a single unit — both would sell this product for its unit
+    price. Hide them wherever the calculator is in charge.
+  {%- endcomment -%}
+  {%- assign hide_extra = block.settings.hide_selectors | replace: '<', '' | replace: '>', '' -%}
+  <style>
+    .shopify-payment-button{display:none !important;}
+    {% if hide_extra != blank %}{{ hide_extra }}{display:none !important;}{% endif %}
+  </style>
+
   <div
     class="price-calc"
     data-price-calculator
@@ -25,6 +36,7 @@
       action="{{ routes.cart_add_url }}"
       accept-charset="UTF-8"
       class="price-calc__form"
+      autocomplete="off"
       data-price-calc-form
     >
       <input type="hidden" name="form_type" value="product">
@@ -37,12 +49,46 @@
           {%- assign input_id = block.id | append: '-' | append: field.key -%}
 
           <div class="price-calc__field">
-            <label class="price-calc__label" for="{{ input_id }}">
+            <label class="price-calc__label" id="{{ input_id }}-label" for="{{ input_id }}">
               {{- field.label | escape -}}
               {%- if field.unit != blank %} ({{ field.unit | escape }}){% endif -%}
             </label>
 
-            {%- if field.type == 'select' -%}
+            {%- if field.type == 'radio' -%}
+              {%- comment -%}
+                The group carries the key, like any other control; the radios
+                inside need a name only so the browser groups them.
+              {%- endcomment -%}
+              {%- assign default_listed = false -%}
+              {%- for option in field.options -%}
+                {%- if field.defaultValue != blank and field.defaultValue == option.value -%}
+                  {%- assign default_listed = true -%}
+                {%- endif -%}
+              {%- endfor -%}
+              <div
+                class="price-calc__choices"
+                id="{{ input_id }}"
+                role="radiogroup"
+                aria-labelledby="{{ input_id }}-label"
+                data-calc-key="{{ field.key | escape }}"
+                data-calc-type="radio"
+              >
+                {%- for option in field.options -%}
+                  <label class="price-calc__choice">
+                    <input
+                      type="radio"
+                      name="{{ input_id }}"
+                      value="{{ option.value }}"
+                      {% if default_listed %}
+                        {%- if field.defaultValue == option.value %}checked{% endif -%}
+                      {% elsif forloop.first %}checked{% endif %}
+                    >
+                    <span>{{ option.label | escape }}</span>
+                  </label>
+                {%- endfor -%}
+              </div>
+
+            {%- elsif field.type == 'select' -%}
               <select
                 class="price-calc__control"
                 id="{{ input_id }}"
@@ -104,17 +150,27 @@
           <label class="price-calc__label" for="{{ pieces_id }}">
             {{- config.piecesLabel | default: 'Pieces' | escape -}}
           </label>
-          <input
-            class="price-calc__control"
-            id="{{ pieces_id }}"
-            type="number"
-            inputmode="numeric"
-            min="1"
-            step="1"
-            max="{{ config.maxPieces | default: 100 }}"
-            value="1"
-            data-price-calc-pieces
-          >
+          <div class="price-calc__quantity">
+            <button class="price-calc__quantity-button" name="minus" type="button" data-price-calc-step="-1">
+              <span class="price-calc__sr">Decrease {{ config.piecesLabel | default: 'Pieces' | escape }}</span>
+              <svg aria-hidden="true" focusable="false" viewBox="0 0 10 2" fill="none"><path fill="currentColor" fill-rule="evenodd" d="M.5 1C.5.7.7.5 1 .5h8a.5.5 0 1 1 0 1H1A.5.5 0 0 1 .5 1" clip-rule="evenodd"/></svg>
+            </button>
+            <input
+              class="price-calc__quantity-input"
+              id="{{ pieces_id }}"
+              type="number"
+              inputmode="numeric"
+              min="1"
+              step="1"
+              max="{{ config.maxPieces | default: 100 }}"
+              value="1"
+              data-price-calc-pieces
+            >
+            <button class="price-calc__quantity-button" name="plus" type="button" data-price-calc-step="1">
+              <span class="price-calc__sr">Increase {{ config.piecesLabel | default: 'Pieces' | escape }}</span>
+              <svg aria-hidden="true" focusable="false" viewBox="0 0 10 10" fill="none"><path fill="currentColor" fill-rule="evenodd" d="M1 4.51a.5.5 0 0 0 0 1h3.5l.01 3.5a.5.5 0 0 0 1-.01V5.5l3.5-.01a.5.5 0 0 0-.01-1H5.5L5.49.99a.5.5 0 0 0-1 .01v3.5l-3.5.01z" clip-rule="evenodd"/></svg>
+            </button>
+          </div>
           <input
             type="hidden"
             name="properties[{{ config.piecesLabel | default: 'Pieces' | escape }}]"
@@ -167,7 +223,14 @@
   "settings": [
     {
       "type": "paragraph",
-      "content": "Fields and the pricing formula are configured per product in the app. Hide the theme's own buy button on products that use this block."
+      "content": "Fields and the pricing formula are configured per product in the app."
+    },
+    {
+      "type": "text",
+      "id": "hide_selectors",
+      "label": "CSS selectors of the theme's own buy buttons",
+      "info": "Hidden on products using this block, so they can't be bought at the unit price. Adjust if your theme differs. Dynamic checkout buttons are always hidden.",
+      "default": "product-form button[name=\"add\"]"
     }
   ]
 }

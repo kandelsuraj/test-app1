@@ -1,0 +1,5 @@
+{
+  "welcome": "Bienvenue dans l'extension {{target}} !",
+  "attributeChangesAreNotSupported": "Les modifications d'attributs ne sont pas prises en charge dans ce checkout",
+  "iWouldLikeAFreeGiftWithMyOrder": "Je souhaite recevoir un cadeau gratuit avec ma commande"
+}
