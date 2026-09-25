@@ -32,3 +32,11 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
+
+// Per-shop secret for signing calculator prices. The cart transform holds a copy
+// in its $app:signing_key metafield so the function can verify signatures.
+model PriceSigningKey {
+  shop      String   @id
+  secret    String
+  createdAt DateTime @default(now())
+}

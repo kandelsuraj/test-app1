@@ -2,9 +2,10 @@
   Renders the customer input fields configured in the app admin, prices them with
   the merchant's formula, and adds the result to the cart.
 
-  The storefront cannot set a line price, so the line is added as
-  `quantity x variant price`. Price the variant at the smallest unit (0.01) and
-  the line total lands exactly on the calculated price.
+  On submit the inputs go to the app proxy, which prices them on the server and
+  signs the result into the `_calculator` / `_calc_sig` line properties. The
+  app's cart transform verifies that signature and sets the line price; an
+  unsigned or altered line is charged the variant's own price.
 {%- endcomment -%}
 
 {%- assign config = product.metafields["$app"].price_calculator.value -%}
@@ -16,7 +17,8 @@
     class="price-calc"
     data-price-calculator
     data-config="{{ config | json | escape }}"
-    data-unit-cents="{{ variant.price }}"
+    data-variant-id="{{ variant.id }}"
+    data-root-url="{{ routes.root_url }}"
     data-currency="{{ cart.currency.iso_code }}"
     {{ block.shopify_attributes }}
   >
@@ -30,6 +32,7 @@
       <input type="hidden" name="form_type" value="product">
       <input type="hidden" name="utf8" value="✓">
       <input type="hidden" name="id" value="{{ variant.id }}">
+      {%- comment -%} Pieces are the real line quantity. {%- endcomment -%}
       <input type="hidden" name="quantity" value="1" data-price-calc-quantity>
 
       <div class="price-calc__fields">
@@ -115,16 +118,11 @@
             value="1"
             data-price-calc-pieces
           >
-          <input
-            type="hidden"
-            name="properties[{{ config.piecesLabel | default: 'Pieces' | escape }}]"
-            value="1"
-            data-price-calc-pieces-prop
-          >
         </div>
       {%- endif -%}
 
       <input type="hidden" name="properties[_calculator]" value="" data-price-calc-raw>
+      <input type="hidden" name="properties[_calc_sig]" value="" data-price-calc-sig>
 
       <div class="price-calc__summary">
         <span class="price-calc__price-label">{{ config.priceLabel | default: 'Your price' | escape }}</span>

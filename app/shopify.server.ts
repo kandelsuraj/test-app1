@@ -6,6 +6,7 @@ import {
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
+import { ensurePriceSetup } from "./pricing.server";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -16,6 +17,13 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
+  hooks: {
+    // Register the price-transform function and hand it the signing key as
+    // soon as a shop installs, before any calculator line reaches a cart.
+    afterAuth: async ({ admin, session }) => {
+      await ensurePriceSetup(admin, session.shop);
+    },
+  },
   future: {
     expiringOfflineAccessTokens: true,
   },

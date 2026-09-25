@@ -3,7 +3,12 @@
  * $app:price_calculator product metafield, plus validation shared by the admin
  * action and the admin live preview.
  */
-import { FormulaError, collectVariables, parseFormula } from "./formula";
+import {
+  FormulaError,
+  collectVariables,
+  parseFormula,
+  runFormula,
+} from "./formula";
 
 export type FieldType = "number" | "select" | "checkbox";
 
@@ -35,6 +40,11 @@ export type CalculatorConfig = {
   allowPieces: boolean;
   piecesLabel: string;
   maxPieces: number;
+  /**
+   * Changes on every save. Signed prices carry the revision they were minted
+   * for, and the cart transform ignores any that no longer match.
+   */
+  revision: string;
 };
 
 export const RESERVED_KEYS = new Set([
@@ -82,6 +92,7 @@ export const EMPTY_CONFIG: CalculatorConfig = {
   allowPieces: true,
   piecesLabel: "Pieces",
   maxPieces: 100,
+  revision: "",
 };
 
 function toNumberOrNull(value: unknown): number | null {
@@ -113,6 +124,7 @@ export function normalizeConfig(input: unknown): CalculatorConfig {
       typeof raw.piecesLabel === "string" && raw.piecesLabel.trim()
         ? raw.piecesLabel
         : "Pieces",
+    revision: typeof raw.revision === "string" ? raw.revision : "",
     maxPieces: Math.min(
       1000,
       Math.max(1, Math.round(toNumberOrNull(raw.maxPieces) ?? 100)),
@@ -235,29 +247,63 @@ export function defaultValueFor(field: CalculatorField): number {
   return field.defaultValue ?? field.min ?? 0;
 }
 
-/**
- * The storefront can't set a price, so the line is charged as
- * `quantity x variant price`. Picking the quantity is the whole trick: the
- * variant should be priced at the smallest unit (1 cent is exact).
- */
-export function quantityForPrice(priceCents: number, unitCents: number) {
-  if (!unitCents || unitCents < 1) {
-    return { quantity: 1, chargedCents: unitCents || 0 };
-  }
-
-  const quantity = Math.max(1, Math.round(priceCents / unitCents));
-  return { quantity, chargedCents: quantity * unitCents };
+/** One piece, in cents, after the minimum price. */
+export function unitPriceCents(formulaPrice: number, minPrice: number) {
+  return Math.round(Math.max(formulaPrice, minPrice) * 100);
 }
 
 /**
- * The formula prices one piece; buying several multiplies it. Pieces stay out of
- * the formula on purpose, so a merchant can never forget to multiply by them.
+ * Price one piece from what the customer entered, trusting nothing: every value
+ * is checked against its field before the formula sees it. The app proxy uses
+ * this to decide what to sign, so it must reject anything the storefront block
+ * would not let a customer enter.
  */
-export function totalCents(
-  unitPrice: number,
-  minPrice: number,
-  pieces: number,
-) {
-  const perPiece = Math.max(unitPrice, minPrice);
-  return Math.round(perPiece * 100) * Math.max(1, Math.round(pieces));
+export function priceFromInputs(
+  config: CalculatorConfig,
+  input: unknown,
+): { unitCents: number; values: Record<string, number> } | { error: string } {
+  if (!config.enabled) return { error: "This calculator is switched off." };
+
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const values: Record<string, number> = {};
+
+  for (const field of config.fields) {
+    const value = Number(raw[field.key]);
+    const name = field.label || field.key;
+
+    if (raw[field.key] === null || raw[field.key] === "" || !Number.isFinite(value)) {
+      return { error: `Fill in ${name}.` };
+    }
+
+    if (field.type === "checkbox") {
+      if (value !== 0 && value !== 1) return { error: `${name} is not valid.` };
+    } else if (field.type === "select") {
+      if (!field.options.some((option) => option.value === value)) {
+        return { error: `Choose one of the options for ${name}.` };
+      }
+    } else {
+      if (field.min !== null && value < field.min) {
+        return { error: `${name} must be at least ${field.min}.` };
+      }
+      if (field.max !== null && value > field.max) {
+        return { error: `${name} can be at most ${field.max}.` };
+      }
+    }
+
+    values[field.key] = value;
+  }
+
+  let price: number;
+  try {
+    price = runFormula(config.formula, values);
+  } catch {
+    return { error: "We could not work out a price for those values." };
+  }
+
+  const unitCents = unitPriceCents(price, config.minPrice);
+  if (unitCents <= 0) {
+    return { error: "We could not work out a price for those values." };
+  }
+
+  return { unitCents, values };
 }

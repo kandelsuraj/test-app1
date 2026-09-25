@@ -1,0 +1,17 @@
+api_version = "2026-07"
+uid = "e7120add-23de-7d69-23d9-d2642ccc7780f0fe4023"
+
+[[extensions]]
+name = "t:name"
+handle = "price-transform"
+type = "function"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.transform.run"
+  input_query = "src/cart_transform_run.graphql"
+  export = "cart-transform-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"

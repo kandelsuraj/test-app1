@@ -18,18 +18,21 @@ import {
   EMPTY_CONFIG,
   defaultValueFor,
   normalizeConfig,
-  quantityForPrice,
-  totalCents,
+  unitPriceCents,
   validateConfig,
 } from "../calculator";
 import type { CalculatorConfig, CalculatorField, FieldType } from "../calculator";
 import { FUNCTION_NAMES, FormulaError, runFormula } from "../formula";
+import { ensurePriceSetup } from "../pricing.server";
 
 const NAMESPACE = "$app";
 const KEY = "price_calculator";
+/** Mirrors config.revision in a tiny metafield the price function can afford to read. */
+const REVISION_KEY = "price_revision";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
+  const priceSetup = await ensurePriceSetup(admin, session.shop);
   const productId = new URL(request.url).searchParams.get("product");
 
   const listResponse = await admin.graphql(
@@ -69,7 +72,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     );
 
   if (!productId) {
-    return { product: null, config: null, currencyCode, configured };
+    return { product: null, config: null, currencyCode, configured, priceSetup };
   }
 
   const response = await admin.graphql(
@@ -86,10 +89,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             nodes {
               id
               price
-              inventoryPolicy
-              inventoryItem {
-                tracked
-              }
             }
           }
         }
@@ -100,7 +99,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const product = json.data?.product;
 
   if (!product) {
-    return { product: null, config: null, currencyCode, configured };
+    return { product: null, config: null, currencyCode, configured, priceSetup };
   }
 
   const variant = product.variants?.nodes?.[0];
@@ -111,14 +110,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       title: product.title,
       handle: product.handle,
       variantPrice: variant?.price ?? "0.00",
-      inventoryTracked: variant?.inventoryItem?.tracked ?? false,
-      inventoryPolicy: variant?.inventoryPolicy ?? "DENY",
     },
     config: product.calculator?.jsonValue
       ? normalizeConfig(product.calculator.jsonValue)
       : null,
     currencyCode,
     configured,
+    priceSetup,
   };
 };
 
@@ -147,7 +145,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }`,
       {
         variables: {
-          metafields: [{ ownerId: productId, namespace: NAMESPACE, key: KEY }],
+          metafields: [
+            { ownerId: productId, namespace: NAMESPACE, key: KEY },
+            { ownerId: productId, namespace: NAMESPACE, key: REVISION_KEY },
+          ],
         },
       },
     );
@@ -167,7 +168,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   // Re-validate server-side; the client check is only there for fast feedback.
-  const config = normalizeConfig(parsed);
+  // A new revision retires every price signed against the previous settings.
+  const config = { ...normalizeConfig(parsed), revision: crypto.randomUUID().slice(0, 8) };
   const errors = validateConfig(config);
   if (errors.length > 0) {
     return { ok: false, errors };
@@ -195,6 +197,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             key: KEY,
             type: "json",
             value: JSON.stringify(config),
+          },
+          {
+            ownerId: productId,
+            namespace: NAMESPACE,
+            key: REVISION_KEY,
+            type: "single_line_text_field",
+            value: config.revision,
           },
         ],
       },
@@ -237,7 +246,7 @@ function blankField(index: number): CalculatorField {
 }
 
 export default function CalculatorRoute() {
-  const { product, config, currencyCode, configured } =
+  const { product, config, currencyCode, configured, priceSetup } =
     useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
@@ -297,15 +306,19 @@ export default function CalculatorRoute() {
     try {
       const perPiece = runFormula(draft.formula, preview);
       const pieces = draft.allowPieces ? previewPieces : 1;
-      const priceCents = totalCents(perPiece, draft.minPrice, pieces);
-      const { quantity, chargedCents } = quantityForPrice(priceCents, unitCents);
+      const pieceCents = unitPriceCents(perPiece, draft.minPrice);
 
-      return { priceCents, quantity, chargedCents, error: null as string | null };
+      return {
+        pieceCents,
+        pieces,
+        totalCents: pieceCents * pieces,
+        error: null as string | null,
+      };
     } catch (error) {
       return {
-        priceCents: 0,
-        quantity: 0,
-        chargedCents: 0,
+        pieceCents: 0,
+        pieces: 0,
+        totalCents: 0,
         error:
           error instanceof FormulaError ? error.message : "Formula is not valid",
       };
@@ -316,7 +329,6 @@ export default function CalculatorRoute() {
     draft.allowPieces,
     preview,
     previewPieces,
-    unitCents,
   ]);
 
   const chooseProduct = useCallback(async () => {
@@ -400,6 +412,15 @@ export default function CalculatorRoute() {
         Save
       </s-button>
 
+      {!priceSetup.active && (
+        <s-banner tone="critical" heading="Calculated prices are not active">
+          <s-paragraph>
+            {priceSetup.error} Until this is fixed, calculator products are
+            charged their variant price at checkout.
+          </s-paragraph>
+        </s-banner>
+      )}
+
       <s-section heading="Product">
         <s-paragraph>
           Choose a product, describe the inputs the customer fills in, and write
@@ -411,30 +432,20 @@ export default function CalculatorRoute() {
           </s-button>
           {product && (
             <s-text>
-              <s-text type="strong">{product.title}</s-text> — unit price{" "}
+              <s-text type="strong">{product.title}</s-text> — variant price{" "}
               {money(unitCents)}
             </s-text>
           )}
         </s-stack>
 
-        {product && unitCents !== 1 && (
-          <s-banner tone="warning" heading="Set this product's price to 0.01">
+        {product && !previewResult.error && unitCents < previewResult.pieceCents && (
+          <s-banner tone="warning" heading="Raise this product's own price">
             <s-paragraph>
-              The storefront can&apos;t set its own price, so the calculator adds{" "}
-              <s-text type="strong">quantity × the variant price</s-text> to the
-              cart. At {money(unitCents)} per unit, prices can only land on
-              multiples of that. A variant price of 0.01 gives exact prices to
-              the cent.
-            </s-paragraph>
-          </s-banner>
-        )}
-
-        {product && product.inventoryTracked && product.inventoryPolicy === "DENY" && (
-          <s-banner tone="warning" heading="Turn off inventory tracking">
-            <s-paragraph>
-              Each order adds hundreds or thousands of units to the line, so
-              tracked inventory will block the purchase. Untrack this product, or
-              let it continue selling when out of stock.
+              Calculated prices are signed by the app. A cart line without a
+              valid signature is charged the variant price instead, which is{" "}
+              {money(unitCents)} — less than the {money(previewResult.pieceCents)}{" "}
+              in the preview. Set the variant price at or above the highest price
+              the calculator can produce, so a tampered line always costs more.
             </s-paragraph>
           </s-banner>
         )}
@@ -844,15 +855,11 @@ export default function CalculatorRoute() {
               <s-box padding="base" borderWidth="base" borderRadius="base">
                 <s-stack direction="block">
                   <s-text type="strong">
-                    {draft.priceLabel}: {money(previewResult.chargedCents)}
+                    {draft.priceLabel}: {money(previewResult.totalCents)}
                   </s-text>
-                  <s-text color="subdued">
-                    Added as {previewResult.quantity} × {money(unitCents)}
-                  </s-text>
-                  {previewResult.chargedCents !== previewResult.priceCents && (
+                  {previewResult.pieces > 1 && (
                     <s-text color="subdued">
-                      Formula said {money(previewResult.priceCents)} — rounded to
-                      the nearest unit.
+                      {previewResult.pieces} × {money(previewResult.pieceCents)}
                     </s-text>
                   )}
                 </s-stack>
@@ -864,10 +871,19 @@ export default function CalculatorRoute() {
 
       <s-section slot="aside" heading="How it reaches the cart">
         <s-paragraph>
-          The storefront can&apos;t set a price, so the block adds{" "}
-          <s-text type="strong">quantity × the variant price</s-text> and records
-          the entered values as line item properties. Price the variant at 0.01
-          and the total lands exactly on the calculated amount.
+          When a customer adds to cart, the app prices their inputs on the server
+          and signs the result. The app&apos;s cart transform checks that
+          signature and sets the line to exactly that price, with the number of
+          pieces as the real quantity.
+        </s-paragraph>
+        <s-paragraph>
+          A line whose signature is missing, altered, or older than your last
+          save is charged the variant&apos;s own price instead. Saving here
+          invalidates prices already sitting in carts.
+        </s-paragraph>
+        <s-paragraph>
+          Subscriptions aren&apos;t supported: Shopify doesn&apos;t allow custom
+          line prices on lines with a selling plan.
         </s-paragraph>
         <s-paragraph>
           Add the <s-text type="strong">Price calculator</s-text> app block to the

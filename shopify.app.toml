@@ -7,7 +7,7 @@ embedded = true
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,write_metaobjects,write_metaobject_definitions"
+scopes = "write_products,write_metaobjects,write_metaobject_definitions,write_cart_transforms"
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
@@ -24,6 +24,14 @@ description = "Customer input fields and pricing formula for this product"
 
   [product.metafields.app.price_calculator.access]
   admin = "merchant_read_write"
+
+[product.metafields.app.price_revision]
+type = "single_line_text_field"
+name = "Price calculator revision"
+description = "Changes on every calculator save; the price function rejects prices signed for an older one"
+
+  [product.metafields.app.price_revision.access]
+  admin = "merchant_read"
 
 [metaobjects.app.example]
 name = "Example"
@@ -51,6 +59,12 @@ api_version = "2026-10"
   [[webhooks.subscriptions]]
   uri = "/webhooks/app/scopes_update"
   topics = [ "app/scopes_update" ]
+
+[app_proxy]
+# The storefront calculator asks /apps/price-calc/sign for a signed price.
+url = "https://example.com/proxy"
+subpath = "price-calc"
+prefix = "apps"
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]

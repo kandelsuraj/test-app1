@@ -1,0 +1,35 @@
+query CartTransformRunInput {
+  presentmentCurrencyRate
+  cartTransform {
+    signingKey: metafield(namespace: "$app", key: "signing_key") {
+      value
+    }
+  }
+  cart {
+    lines {
+      id
+      calculator: attribute(key: "_calculator") {
+        value
+      }
+      signature: attribute(key: "_calc_sig") {
+        value
+      }
+      sellingPlanAllocation {
+        sellingPlan {
+          id
+        }
+      }
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+          product {
+            revision: metafield(namespace: "$app", key: "price_revision") {
+              value
+            }
+          }
+        }
+      }
+    }
+  }
+}

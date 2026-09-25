@@ -5,7 +5,7 @@
  * input is untrusted and must never reach eval() or new Function(). This parses
  * to an AST and walks it, supporting only the operators and functions below.
  *
- * NOTE: extensions/price-calculator/assets/price-calculator.js carries a plain-JS
+ * NOTE: storefront/price-calculator.js carries a plain-JS
  * port of this parser so the storefront evaluates prices identically. Keep the
  * two in sync when changing the grammar or the FUNCTIONS table.
  */

@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "build": "react-router build",
+    "build:storefront": "esbuild storefront/price-calculator.js --minify --target=es2017 --outfile=extensions/price-calculator/assets/price-calculator.js \"--banner:js=/* Generated from storefront/price-calculator.js by npm run build:storefront. Do not edit. */\"",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
@@ -17,7 +18,8 @@
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
-    "typecheck": "react-router typegen && tsc --noEmit"
+    "typecheck": "react-router typegen && tsc --noEmit",
+    "predev": "npm run build:storefront"
   },
   "type": "module",
   "engines": {
